@@ -20,7 +20,7 @@ REQ_PAYLOAD = "REQ_PAYLOAD"
 REQ_URL = "REQ_URL"
 REQ_METHOD = "REQ_METHOD"
 SCRIPT = "SCRIPT"
-ENABLE_5XX = "ENABLE_5XX"
+URL_RETRY_ON = "URL_RETRY_ON"
 
 
 def main():
@@ -65,22 +65,22 @@ def main():
         print(f"{timestamp()} Unique filenames will not be enforced.")
         unique_filenames = False
 
-    enable_5xx = os.getenv(ENABLE_5XX)
-    if enable_5xx is not None and enable_5xx.lower() == "true":
-        print(f"{timestamp()} 5xx response content will be enabled.")
-        enable_5xx = True
-    else:
-        print(f"{timestamp()} 5xx response content will not be enabled.")
-        enable_5xx = False
+
+    try:
+        url_retry_on = [int(x) for x in os.getenv("URL_RETRY_ON", "500,502,503,504").split(",") if 500 <= int(x)<= 599]
+        print(f"{timestamp()} 5xx content pulled disabled and retry enabled for {url_retry_on}")
+    except ValueError:
+        print(f"{timestamp()} cannot convert {os.getenv('URL_RETRY_ON')} elements to integer! Exit")
+        return -1
 
     current_namespace = open("/var/run/secrets/kubernetes.io/serviceaccount/namespace").read()
     if os.getenv(METHOD) == "LIST":
         for res in resources:
             list_resources(label, label_value, target_folder, url, method, payload,
-                           current_namespace, folder_annotation, res, unique_filenames, script, enable_5xx)
+                           current_namespace, folder_annotation, res, unique_filenames, script, url_retry_on)
     else:
         watch_for_changes(os.getenv(METHOD), label, label_value, target_folder, url, method, payload,
-                          current_namespace, folder_annotation, resources, unique_filenames, script, enable_5xx)
+                          current_namespace, folder_annotation, resources, unique_filenames, script, url_retry_on)
 
 
 def _initialize_kubeclient_configuration():
