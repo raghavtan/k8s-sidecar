@@ -174,11 +174,12 @@ If the filename ends with `.url` suffix, the content will be processed as an URL
   
 - `URL_RETRY_ON`
   - description: list of 5XX response codes to enable retry of 5XX response instead of pulling 5xx content, Used in case if the filename ends with `.url` suffix (Please refer to the `*.url` feature here.)
-  - required: false (default="500,502,503,504")
+  - required: false
+  - default="500,502,503,504"
   - type: string
 
 - `URL_REFRESH_INTERVAL`
   - description: How often to refresh the content of `.url` entries in seconds, where 0 means `once`.
   - required: false
-  - default: 0
+  - default: "0"
   - type: integer
