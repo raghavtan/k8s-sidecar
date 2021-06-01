@@ -21,6 +21,7 @@ REQ_URL = "REQ_URL"
 REQ_METHOD = "REQ_METHOD"
 SCRIPT = "SCRIPT"
 URL_RETRY_ON = "URL_RETRY_ON"
+URL_REFRESH_INTERVAL = "URL_REFRESH_INTERVAL"
 
 
 def main():
@@ -73,14 +74,24 @@ def main():
         print(f"{timestamp()} cannot convert {os.getenv('URL_RETRY_ON')} elements to integer! Exit")
         return -1
 
+    try:
+        url_refresh_interval = int(os.getenv(URL_REFRESH_INTERVAL, 0))
+    except ValueError:
+        print(f"{timestamp()} cannot convert {URL_REFRESH_INTERVAL} to integer! Exit")
+        return -1
+
+    if url_refresh_interval > 0:
+        print(f"{timestamp()} '.url' content refreshing will be enabled. Refresh interval {url_refresh_interval}")
+
     current_namespace = open("/var/run/secrets/kubernetes.io/serviceaccount/namespace").read()
     if os.getenv(METHOD) == "LIST":
         for res in resources:
             list_resources(label, label_value, target_folder, url, method, payload,
                            current_namespace, folder_annotation, res, unique_filenames, script, url_retry_on)
     else:
-        watch_for_changes(os.getenv(METHOD), label, label_value, target_folder, url, method, payload,
-                          current_namespace, folder_annotation, resources, unique_filenames, script, url_retry_on)
+        watch_for_changes(os.getenv(METHOD), url_refresh_interval, label, label_value,
+                          target_folder, url, method, payload, current_namespace, folder_annotation,
+                          resources, unique_filenames, script, url_retry_on)
 
 
 def _initialize_kubeclient_configuration():
