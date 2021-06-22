@@ -26,6 +26,17 @@ subjects:
   namespace: default
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: script-configmap
+  labels:
+    somelabel: "somesome"
+data:
+  script.sh: |-
+    #!/bin/sh
+    touch /tmp/script_result
+---
+apiVersion: v1
 kind: Pod
 metadata:
   name: sidecar
@@ -84,7 +95,7 @@ spec:
     - name: SCRIPT
       value: "/opt-5xx/script.sh"
     - name: ENABLE_5XX
-        value: "true"
+      value: "true"
   volumes:
   - name: shared-volume
     emptyDir: {}
@@ -96,8 +107,10 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: dummy-server
+  name: dummy-server-pod
   namespace: default
+  labels:
+    app: dummyserver
 spec:
   serviceAccountName: sample-acc
   containers:
@@ -105,3 +118,15 @@ spec:
     image: dummy-server:1.0.0
     ports:
       - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dummy-server
+spec:
+  selector:
+    app: dummyserver
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
