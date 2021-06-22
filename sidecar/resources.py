@@ -37,7 +37,7 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def _get_file_data_and_name(full_filename, content, enable_5xx, content_type=CONTENT_TYPE_TEXT):
+def _get_file_data_and_name(full_filename, content, url_retry_on, content_type=CONTENT_TYPE_TEXT):
     if content_type == CONTENT_TYPE_BASE64_BINARY:
         file_data = base64.b64decode(content)
     else:
@@ -45,7 +45,7 @@ def _get_file_data_and_name(full_filename, content, enable_5xx, content_type=CON
 
     if full_filename.endswith(".url"):
         filename = full_filename[:-4]
-        file_data = request(file_data, "GET", enable_5xx).text
+        file_data = request(file_data, "GET", url_retry_on).text
     else:
         filename = full_filename
 
@@ -66,7 +66,7 @@ def _get_destination_folder(metadata, default_folder, folder_annotation):
 
 
 def list_resources(label, label_value, target_folder, url, method, payload,
-                   current_namespace, folder_annotation, resource, unique_filenames, script, enable_5xx):
+                   current_namespace, folder_annotation, resource, unique_filenames, script, url_retry_on):
     v1 = client.CoreV1Api()
     namespace = os.getenv("NAMESPACE", current_namespace)
     # Filter resources based on label and value or just label
@@ -89,15 +89,15 @@ def list_resources(label, label_value, target_folder, url, method, payload,
         dest_folder = _get_destination_folder(metadata, target_folder, folder_annotation)
 
         if resource == RESOURCE_CONFIGMAP:
-            files_changed |= _process_config_map(dest_folder, item, resource, unique_filenames, enable_5xx)
+            files_changed |= _process_config_map(dest_folder, item, resource, unique_filenames, url_retry_on)
         else:
-            files_changed = _process_secret(dest_folder, item, resource, unique_filenames, enable_5xx)
+            files_changed = _process_secret(dest_folder, item, resource, unique_filenames, url_retry_on)
 
     if url and files_changed:
-        request(url, method, enable_5xx, payload)
+        request(url, method, url_retry_on, payload)
 
 
-def _process_secret(dest_folder, secret, resource, unique_filenames, enable_5xx, is_removed=False):
+def _process_secret(dest_folder, secret, resource, unique_filenames, url_retry_on, is_removed=False):
     if secret.data is None:
         print(f"{timestamp()} No data field in {resource}")
         return False
@@ -109,11 +109,11 @@ def _process_secret(dest_folder, secret, resource, unique_filenames, enable_5xx,
             resource,
             unique_filenames,
             CONTENT_TYPE_BASE64_BINARY,
-            enable_5xx,
+            url_retry_on,
             is_removed)
 
 
-def _process_config_map(dest_folder, config_map, resource, unique_filenames, enable_5xx, is_removed=False):
+def _process_config_map(dest_folder, config_map, resource, unique_filenames, url_retry_on, is_removed=False):
     files_changed = False
     if config_map.data is None and config_map.binary_data is None:
         print(f"{timestamp()} No data/binaryData field in {resource}")
@@ -125,7 +125,7 @@ def _process_config_map(dest_folder, config_map, resource, unique_filenames, ena
             resource,
             unique_filenames,
             CONTENT_TYPE_TEXT,
-            enable_5xx,
+            url_retry_on,
             is_removed)
     if config_map.binary_data is not None:
         files_changed |= _iterate_data(
@@ -135,12 +135,12 @@ def _process_config_map(dest_folder, config_map, resource, unique_filenames, ena
             resource,
             unique_filenames,
             CONTENT_TYPE_BASE64_BINARY,
-            enable_5xx,
+            url_retry_on,
             is_removed)
     return files_changed
 
 
-def _iterate_data(data, dest_folder, metadata, resource, unique_filenames, content_type, enable_5xx,
+def _iterate_data(data, dest_folder, metadata, resource, unique_filenames, content_type, url_retry_on,
                   remove_files=False):
     files_changed = False
     for data_key in data.keys():
@@ -153,17 +153,17 @@ def _iterate_data(data, dest_folder, metadata, resource, unique_filenames, conte
             resource,
             unique_filenames,
             content_type,
-            enable_5xx,
+            url_retry_on,
             remove_files)
     return files_changed
 
 
 def _update_file(data_key, data_content, dest_folder, metadata, resource,
-                 unique_filenames, content_type, enable_5xx, remove=False):
+                 unique_filenames, content_type, url_retry_on, remove=False):
     try:
         filename, file_data = _get_file_data_and_name(data_key,
                                                       data_content,
-                                                      enable_5xx,
+                                                      url_retry_on,
                                                       content_type)
         if unique_filenames:
             filename = unique_filename(filename=filename,
@@ -175,12 +175,12 @@ def _update_file(data_key, data_content, dest_folder, metadata, resource,
         else:
             return remove_file(dest_folder, filename)
     except Exception as e:
-        print(f"{timestamp()} Error when updating from ${data_key} into ${dest_folder}: ${e}")
+        print(f"{timestamp()} Exception on {e} {resource} {data_key}/{data_content}")
         return False
 
 
 def _watch_url_iterator(label, label_value, target_folder, url, method, payload, current_namespace,
-                        folder_annotation, resources, unique_filenames, script, enable_5xx, url_refresh_interval):
+                        folder_annotation, resources, unique_filenames, script, url_retry_on, url_refresh_interval):
     v1_url = client.CoreV1Api()
     namespace = os.getenv("NAMESPACE", current_namespace)
     # Filter resources based on label and value or just label
@@ -213,13 +213,13 @@ def _watch_url_iterator(label, label_value, target_folder, url, method, payload,
                 for data_key, value in config_maps.data.items():
                     _update_file(data_key, value, dest_folder, config_maps.metadata,
                                  RESOURCE_CONFIGMAP, unique_filenames, content_type=CONTENT_TYPE_TEXT,
-                                 enable_5xx=enable_5xx, remove=False)
+                                 url_retry_on=url_retry_on, remove=False)
 
         sleep(url_refresh_interval)
 
 
 def _watch_resource_iterator(label, label_value, target_folder, url, method, payload,
-                             current_namespace, folder_annotation, resource, unique_filenames, script, enable_5xx):
+                             current_namespace, folder_annotation, resource, unique_filenames, script, url_retry_on):
     v1 = client.CoreV1Api()
     namespace = os.getenv("NAMESPACE", current_namespace)
     # Filter resources based on label and value or just label
@@ -246,16 +246,16 @@ def _watch_resource_iterator(label, label_value, target_folder, url, method, pay
 
         item_removed = event_type == "DELETED"
         if resource == RESOURCE_CONFIGMAP:
-            files_changed |= _process_config_map(dest_folder, item, resource, unique_filenames, enable_5xx,
+            files_changed |= _process_config_map(dest_folder, item, resource, unique_filenames, url_retry_on,
                                                  item_removed)
         else:
-            files_changed |= _process_secret(dest_folder, item, resource, unique_filenames, enable_5xx, item_removed)
+            files_changed |= _process_secret(dest_folder, item, resource, unique_filenames, url_retry_on, item_removed)
 
         if script and files_changed:
             execute(script)
 
         if url and files_changed:
-            request(url, method, enable_5xx, payload)
+            request(url, method, url_retry_on, payload)
 
 
 def _watch_resource_loop(mode, *args):
@@ -284,12 +284,14 @@ def _watch_resource_loop(mode, *args):
             traceback.print_exc()
 
 
+
 def watch_for_changes(mode, url_refresh_interval, label, label_value, target_folder, url, method, payload,
-                      current_namespace, folder_annotation, resources, unique_filenames, script, enable_5xx):
+                      current_namespace, folder_annotation, resources, unique_filenames, script, url_retry_on):
+
     first_proc, sec_proc, third_proc = _start_watcher_processes(current_namespace, folder_annotation, label,
                                                                 label_value, method, mode, payload, resources,
                                                                 target_folder, unique_filenames, script, url,
-                                                                enable_5xx, url_refresh_interval)
+                                                                url_retry_on, url_refresh_interval)
 
     while True:
         if not first_proc.is_alive():
@@ -317,10 +319,10 @@ def watch_for_changes(mode, url_refresh_interval, label, label_value, target_fol
 
 def _start_watcher_processes(current_namespace, folder_annotation, label, label_value,
                              method, mode, payload, resources, target_folder,
-                             unique_filenames, script, url, enable_5xx, url_refresh_interval):
+                             unique_filenames, script, url, url_retry_on, url_refresh_interval):
     first_proc = Process(target=_watch_resource_loop,
                          args=(mode, label, label_value, target_folder, url, method, payload, current_namespace,
-                               folder_annotation, resources[0], unique_filenames, script, enable_5xx)
+                               folder_annotation, resources[0], unique_filenames, script, url_retry_on)
                          )
     first_proc.daemon = True
     first_proc.start()
@@ -331,7 +333,7 @@ def _start_watcher_processes(current_namespace, folder_annotation, label, label_
     if len(resources) == 2:
         sec_proc = Process(target=_watch_resource_loop,
                            args=(mode, label, label_value, target_folder, url, method, payload, current_namespace,
-                                 folder_annotation, resources[1], unique_filenames, script, enable_5xx)
+                                 folder_annotation, resources[1], unique_filenames, script, url_retry_on)
                            )
         sec_proc.daemon = True
         sec_proc.start()
@@ -339,7 +341,7 @@ def _start_watcher_processes(current_namespace, folder_annotation, label, label_
     if url_refresh_interval:
         third_proc = Process(target=_watch_resource_loop,
                              args=("URL", label, label_value, target_folder, url, method, payload, current_namespace,
-                                   folder_annotation, resources, unique_filenames, script, enable_5xx,
+                                   folder_annotation, resources, unique_filenames, script, url_retry_on,
                                    url_refresh_interval)
                              )
 
